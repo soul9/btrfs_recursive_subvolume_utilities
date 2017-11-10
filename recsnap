@@ -1,0 +1,35 @@
+#!/bin/sh
+set -e
+set -o nounset
+set -o pipefail
+
+usage() {
+  echo "usage: $0 source_subvolume destination subvolume_relative"
+  echo "       source_subvolume is the source of the snapshot"
+  echo "       destination should not exist"
+  echo "       subvolume_relative is the path of the source_subvolume relative to the mount root"
+  echo "example for a filesystem mounted to /mnt, snapshotting /mnt/root to /mnt/backup/root: $0 /mnt/root /mnt/backup/root root"
+}
+
+script="$0"
+src="$1"
+dst="$2"
+snappath="$3"
+
+isempty() {
+  target="$1"
+  [ $(ls -A "$target" |wc -c) == "0" ] && return 0
+}
+
+if [ -d "$dst" ]; then
+  if isempty $dst; then
+    rm -fr "$dst"
+  fi
+fi
+
+btrfs subvolume snapshot "$src" "$dst"
+
+btrfs subvolume list -o "$src" |awk '{print $9}' | sed "s,^${snappath}/,,g" | \
+  while read sub; do
+    "$script" "$src"/"$sub" "$dst"/"$sub" "$snappath"/"$sub"
+  done

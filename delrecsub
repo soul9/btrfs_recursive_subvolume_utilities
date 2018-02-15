@@ -1,0 +1,38 @@
+#!/bin/bash
+set -e
+set -o nounset
+set -o pipefail
+
+usage() {
+  cat >> /dev/stderr << EOF
+Recursively remove a subvolume and all subvolumes in it
+Usage: $0 subvolume subpath
+
+subpath is the relative path to the source subvolume     
+example: if I have my btrfs filesystem mounted in /mnt
+           $0 /mnt/root/ root
+         will delete the subvolume root and all subvolumes
+         nested in it
+EOF
+}
+
+err_out() {
+  echo "ERROR: $@"
+  trap - EXIT
+  exit 1
+}
+
+trap "usage; trap - EXIT; exit 1" EXIT
+
+script="$0"
+to_del="$1"
+subpath="$2"
+
+btrfs subvolume list -o "$to_del" |awk '{print $9}' | sed "s,^${subpath}/,,g" | \
+  while read sub; do
+    "$script" "$to_del"/"$sub" "$subpath"/"$sub" ||  err_out "$script" "$to_del"/"$sub" "$subpath"/"$sub" failed
+  done
+
+btrfs subvolume delete "$to_del"
+
+trap - EXIT

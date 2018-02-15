@@ -4,23 +4,38 @@ set -o nounset
 set -o pipefail
 
 usage() {
-  echo "usage: $0 source_subvolume destination subvolume_relative"
-  echo "       source_subvolume is the source of the snapshot"
-  echo "       destination should not exist"
-  echo "       subvolume_relative is the path of the source_subvolume relative to the mount root"
-  echo "example for a filesystem mounted to /mnt, snapshotting /mnt/root to /mnt/backup/root: $0 /mnt/root /mnt/backup/root root"
+  cat >> /dev/stderr << EOF
+Recursively snapshot a subvolume
+Usage: $0 source_subvolume destination subpath
+
+subpath is the relative path to the source subvolume
+example: if I have my btrfs filesystem mounted in /mnt
+           $0 /mnt/root/ /mnt/backups/root root
+         will snapshot everything in /mnt/root into /mnt/backups/root
+         note: root here is a subvolume
+EOF
 }
+
+err_out() {
+  echo "ERROR: $@"
+  trap - EXIT
+  exit 1
+}
+
+trap "usage; trap - EXIT; exit 1" EXIT
 
 script="$0"
 src="$1"
 dst="$2"
-snappath="$3"
+subpath="$3"
 
 isempty() {
   target="$1"
   [ $(ls -A "$target" |wc -c) == "0" ] && return 0
 }
 
+# when a snapshot has been done of the parent subvolume,
+# the sub-snapshot appears as an empty directory
 if [ -d "$dst" ]; then
   if isempty $dst; then
     rm -fr "$dst"
@@ -29,7 +44,9 @@ fi
 
 btrfs subvolume snapshot "$src" "$dst"
 
-btrfs subvolume list -o "$src" |awk '{print $9}' | sed "s,^${snappath}/,,g" | \
+btrfs subvolume list -o "$src" |awk '{print $9}' | sed "s,^${subpath}/,,g" | \
   while read sub; do
-    "$script" "$src"/"$sub" "$dst"/"$sub" "$snappath"/"$sub"
+    "$script" "$src"/"$sub" "$dst"/"$sub" "$subpath"/"$sub" ||  err_out "$script" "$src"/"$sub" "$dst"/"$sub" "$subpath"/"$sub" failed
   done
+
+trap - EXIT
